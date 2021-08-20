@@ -1,0 +1,76 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: App Deployment
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: App Settings
+        Parameters:
+          - Customer
+          - AppName
+          - CloudFrontParam
+          - AppUrl
+          - Branch
+          - SiteCertificateArn
+          - Branch
+      - Label:
+          default: Frontend settings
+        Parameters:
+          - BuildProjectBranchFrontend
+      - Label:
+          default: Backend settings
+        Parameters:
+          - BuildProjectBranchBackend
+Parameters:
+  AppName:
+    Type: String
+    Default: 'DavysTestAppName'
+    Description: The name of the app
+  Customer:
+    Type: String
+    Default: davytestcfcustomer
+    Description: The name of the customer for the app (for tagging)
+  BuildProjectBranchFrontend:
+    Type: String
+    Default: main
+    Description: The name of the Buildproject branch to use for the frontend
+  BuildProjectBranchBackend:
+    Type: String
+    Default: master
+    Description: The name of the Buildproject branch to use for the backend
+  Branch:
+    Type: String
+    Default: dev
+  Project:
+    Type: String
+    Default: serverless
+  RepoFrontend:
+    Default: 'davysbox'
+    Description: CodeCommit Repo Frontend
+    Type: String
+  RepoBackend:
+    Default: 'davysbox-backend'
+    Description: CodeCommit Repo Frontend
+    Type: String
+Resources:
+  DynamoTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub ${Customer}-${AppName}-table
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: N
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
