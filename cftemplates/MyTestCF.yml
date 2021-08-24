@@ -25,7 +25,7 @@ Metadata:
 Parameters:
   AppName:
     Type: String
-    Default: 'DavysTestAppName'
+    Default: 'davystestappname'
     Description: The name of the app
   Customer:
     Type: String
@@ -44,7 +44,7 @@ Parameters:
     Default: dev
   Project:
     Type: String
-    Default: serverless
+    Default: serverlesscftest
   RepoFrontend:
     Default: 'davysbox'
     Description: CodeCommit Repo Frontend
@@ -53,6 +53,7 @@ Parameters:
     Default: 'davysbox-backend'
     Description: CodeCommit Repo Frontend
     Type: String
+  
 Resources:
   DynamoTable:
     Type: AWS::DynamoDB::Table
@@ -76,7 +77,7 @@ Resources:
   CFTemplateTestBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${Customer}-${AppName}-TESTBUCKET-${AWS::AccountId}
+      BucketName: !Sub ${Customer}-${AppName}-testbucket-${AWS::AccountId}
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -86,7 +87,61 @@ Resources:
         - Key: customer
           Value: !Ref Customer
     DeletionPolicy: Delete
-
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      AutoVerifiedAttributes:
+        - email
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      UsernameAttributes:
+        - phone_number
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      UserPoolName: !Sub ${AppName}${BuildProjectBranchFrontend}
+      UserPoolTags: {'customer': !Ref Customer}
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      MfaConfiguration: "OFF"
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub ${Customer}-${AppName}${Branch}
+      UserPoolId: !Ref UserPool
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${Customer}-${AppName}
+      GenerateSecret: false
+      ReadAttributes:
+        - email
+      WriteAttributes:
+        - email
+      RefreshTokenValidity: 1
+      CallbackURLs:
+        - "http://localhost:4200"
+      LogoutURLs:
+        - "http://localhost:4200"
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - aws.cognito.signin.user.admin
+      AllowedOAuthFlowsUserPoolClient: true
+  Administrators:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admin
+      UserPoolId: !Ref UserPool
 
 
 
