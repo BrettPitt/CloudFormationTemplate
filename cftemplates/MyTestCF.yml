@@ -14,6 +14,7 @@ Metadata:
           - Branch
           - SiteCertificateArn
           - Branch
+          - Project
       - Label:
           default: Frontend settings
         Parameters:
@@ -23,6 +24,7 @@ Metadata:
         Parameters:
           - BuildProjectBranchBackend
 Parameters:
+  # CloudFront Parameter definitions
   AppName:
     Type: String
     Default: 'davystestappname'
@@ -44,7 +46,7 @@ Parameters:
     Default: dev
   Project:
     Type: String
-    Default: serverlesscftest
+    Default: cftest
   RepoFrontend:
     Default: 'davysbox'
     Description: CodeCommit Repo Frontend
@@ -87,6 +89,140 @@ Resources:
         - Key: customer
           Value: !Ref Customer
     DeletionPolicy: Delete
+  # CodePipeLineFrontend
+  CodePipelineFrontend:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${Project}_FrontendPipeline
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CFTemplateTestBucket
+      RestartExecutionOnUpdate: true
+      RoleArn: !GetAtt CodePipelineRoleFrontend.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: CodeCommit
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: "1"
+              Configuration:
+                RepositoryName: !Ref RepoFrontend
+                BranchName: !Ref BuildProjectBranchFrontend
+              RunOrder: 1
+              OutputArtifacts: 
+                - Name: CodeCommitCode
+        - Name: Build Frontend
+          Actions: 
+            - Name: Build
+              ActiontypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName: !Sub ${CodeBuildProjectFrontend}
+              InputArtifacts:
+                - Name: CodeCommitCode
+              OutputArtifacts:
+                - Name BuildArtifact
+              RunOrder: 1
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Key for Artifact encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/${Project}-cloudformationdeployer-role
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/${Project}-CentralAcctCodePipelineCFRole
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+            Resource: "*"
+          -
+            Sid: Allow use of the key for CryptoGraphy Lambda
+            Effect: Allow
+            Principal:
+              AWS:
+                - Fn::ImportValue:
+                    !Sub ${Project}:CodeBuildRoleFrontendArn
+                - !GetAtt CodePipelineRoleFrontend.Arn
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+
+
+
+  CodeBuildProjectFrontend:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      ServiceRole: !Ref CodeBuildRoleFrontend
+      Description: Builds Projects
+      EncryptionKey: !GetAtt KMSKey.Arn
+      Name: !Sub ${Project}-CodeBuildProject-Frontend
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:2.0
+        EnvironmentVariables:
+          - Name: S3BucketFunctions
+            Type: PLAINTEXT
+            Value: !Sub ${Project}-lambda-sources-${Branch}-${AWS::AccountId}
+          - Name: Region
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::Region}
+          - Name: AppName
+            Type: PLAINTEXT
+            Value: !Sub ${AppName}
+          # - Name: CognitoDomain
+          #   Type: PLAINTEXT
+          #   Value: !Sub ${UserPoolDomain}
+          - Name: UserPoolId
+            Type: PLAINTEXT
+            Value: !Sub ${UserPool}
+          - Name: UserPoolWebClientId
+            Type: PLAINTEXT
+            Value: !Sub ${UserPoolClient}
+          # - Name: BaseURLApiGW
+          #   Type: PLAINTEXT
+          #   Value: !Sub ${ApiURL}
+          # - Name: FrontendURL
+          #   Type: PLAINTEXT
+          #   Value: !Sub ${AppUrl}
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10
+      Tags:
+        - Key: customer
+          Value: !Ref Customer
+
   UserPool:
     Type: AWS::Cognito::UserPool
     DeletionPolicy: Delete
@@ -99,7 +235,6 @@ Resources:
           - Name: verified_email
             Priority: 1
       UsernameAttributes:
-        - phone_number
         - email
       UsernameConfiguration:
         CaseSensitive: false
@@ -142,21 +277,157 @@ Resources:
     Properties:
       GroupName: Admin
       UserPoolId: !Ref UserPool
+  # SSM Parameter Definition
+  SSMParameterUserPoolId:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Project}/userPoolId
+      Type: "String"
+      Value: !Ref UserPool
+  SSMParameterUserPoolArn:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Project}/userPoolArn
+      Type: "String"
+      Value: !GetAtt UserPool.Arn
+  SSMParameterPrivateBucket:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Project}/cfTestBucket
+      Type: "String"
+      Value: !Ref CFTemplateTestBucket
+  SSMParameterUserPoolClient:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Project}/UserPoolClientId
+      Type: "String"
+      Value: !Ref UserPoolClient
+      Description: "UserPoolClient ID"
+  # Role Definition
+  CodePipelineRoleFrontend:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns: [
+        !Ref CodePipelinePolicyFrontend
+      ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+      Path: /
+      RoleName: !Sub ${Project}-CodePipeline_Role_Buckets_Frontend
+  CodeBuildRoleFrontend:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns: [
+        !Ref CodeBuildPolicyFrontend
+      ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+      Path: /
+      RoleName: !Sub ${Project}-CodeBuild_Role_Buckets_Frontend
+  # Policy Definition
+  CodePipelinePolicyFrontend:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${Project}-CodePipeLineFrontendPolicy
+      Description: "Policy for access to logs and needed S3 Buckets for CodePipeline"
+      Path: "/"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: s3
+            Effect: Allow
+            Action: [
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:GetObjectVersion",
+              "s3:GetBucketVersioning",
+              "s3:CreateBucket",
+              "s3:PutBucketNotification"
+            ]
+            Resource: [
+              !Sub 'arn:aws:s3:::${Customer}-${AppName}-testbucket-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${AppName}-testbucket-${AWS::AccountId}/*'
+            ]
+          - Sid: cloudwatch
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Sid: codebuild
+            Effect: Allow
+            Action:
+              - codebuild:StartBuild
+              - codebuild:BatchGetBuilds
+            Resource: [
+              !Sub 'arn:aws:codebuild:*:*:project/${Project}-Frontend',
+              !Sub 'arn:aws:codebuild:*:*:project/${Project}-Frontend/*'
+            ]
+          - Sid: lambda
+            Effect: Allow
+            Action: [
+              'lambda:ListFunctions',
+              'lambda:InvokeFunction'
+            ]
+            Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*
+  CodeBuildPolicyFrontend:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${Customer}-${Project}-CodeBuildAccess_Buckets_Frontend
+      Description: "Policy for access to logs and needed S3 Buckets for CodeBuild"
+      Path: "/"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: s3
+            Effect: Allow
+            Action: [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:ListBucket"
+            ]
+            Resource: [
+              !Sub 'arn:aws:s3:::${Customer}-${AppName}-testbucket-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${AppName}-testbucket-${AWS::AccountId}/*'
+            ]
+          - Sid: cloudwatch
+            Effect: Allow
+            Action: [
+              "logs:CreateLogStream",
+              "logs:PutLogEvents",
+              "logs:CreateLogGroup"
+            ]
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${Customer}-*'
+          - Sid: ssm
+            Effect: Allow
+            Action: [
+              "ssm:Describe*",
+              "ssm:Get*",
+              "ssm:List*"
+            ]
+            Resource: [
+              !Sub 'arn:aws:ssm:*:*:parameter/${Customer}/*'
+            ]
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Outputs:
+  CodeBuildRoleFrontendArn:
+    Value:
+      !GetAtt CodeBuildRoleFrontend.Arn
+    Export:
+      Name: !Sub ${Project}:CodeBuildRoleFrontendArn
 
 

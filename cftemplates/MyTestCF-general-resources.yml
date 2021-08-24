@@ -1,0 +1,313 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: General ressources needed by DavysboxTest
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Other
+        Parameters:
+          - Customer
+          - Branch
+          - APICertificateArn
+Parameters:
+  APICertificateArn:
+    Type: String
+    Default: "arn:"
+  Branch:
+    Type: String
+    Default: main
+    Description: The name of the Branch where you want to deploy to
+  Project:
+    Type: String
+    Default: mycftestappgeneralresources
+  Customer:
+    Type: String
+    Default: davygenrealsresoucecustomer
+    Description: The name of the customer for the app (for tagging)
+  HostedZoneId:
+    Type: String
+    Description: The Route53 HostedZone which should be used for the certificate and website urls
+    Default: tbd
+  CustomAPIGWDomain:
+    Type: String
+    Description: The URL of the API GW Custom Domain
+  App1Name:
+    Type: String
+  App1AppURL:
+    Type: String
+  SiteCertificateArn:
+    Type: String
+Conditions:
+  DevEnv: !Equals
+    - !Ref Branch
+    - 'main'
+Resources:
+  CloudFrontOrigin:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub ${Customer}-${Project}-OAI
+  CloudWatchRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns: [
+        "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+      ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - "apigateway.amazonaws.com"
+      Path: /
+      RoleName: !Sub ${Customer}-${Project}-CloudWatch-Role
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub ${Customer}-${Project}-build-artifacts-${Branch}-${AWS::AccountId}
+      AccessControl: Private
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+  PipelineArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub ${Customer}-${Project}-pipeline-artifacts-${Branch}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+  LambdaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub ${Customer}-${Project}-lambda-sources-${Branch}-${AWS::AccountId}
+  AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub ${Customer}-${Project}-access-logs-${Branch}-${AWS::AccountId}
+      AccessControl: LogDeliveryWrite
+  CodeBuildPolicyBackend:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${Customer}-${Project}-CodeBuildAccess_Buckets_Backend
+      Description: "Policy for access to logs and needed S3 Buckets for CodeBuild"
+      Path: "/"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: s3
+            Effect: Allow
+            Action: [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:ListBucket"
+            ]
+            Resource: [
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-lambda-sources-${Branch}-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-lambda-sources-${Branch}-${AWS::AccountId}/*',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-build-artifacts-${Branch}-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-build-artifacts-${Branch}-${AWS::AccountId}/*',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-pipeline-artifacts-${Branch}-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-pipeline-artifacts-${Branch}-${AWS::AccountId}/*'
+            ]
+          - Sid: cloudwatch
+            Effect: Allow
+            Action: [
+              "logs:CreateLogStream",
+              "logs:PutLogEvents",
+              "logs:CreateLogGroup"
+            ]
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${Customer}-*'
+  CodeBuildRoleBackend:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns: [
+        !Ref CodeBuildPolicyBackend
+      ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+      Path: /
+      RoleName: !Sub ${Customer}-${Project}-CodeBuild_Role_Buckets_Backend
+  CodeBuildPolicyFrontend:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${Customer}-${Project}-CodeBuildAccess_Buckets_Frontend
+      Description: "Policy for access to logs and needed S3 Buckets for CodeBuild"
+      Path: "/"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: s3
+            Effect: Allow
+            Action: [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:ListBucket"
+            ]
+            Resource: [
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-lambda-sources-${Branch}-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-lambda-sources-${Branch}-${AWS::AccountId}/*',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-build-artifacts-${Branch}-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-build-artifacts-${Branch}-${AWS::AccountId}/*',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-pipeline-artifacts-${Branch}-${AWS::AccountId}',
+              !Sub 'arn:aws:s3:::${Customer}-${Project}-pipeline-artifacts-${Branch}-${AWS::AccountId}/*'
+            ]
+          - Sid: cloudwatch
+            Effect: Allow
+            Action: [
+              "logs:CreateLogStream",
+              "logs:PutLogEvents",
+              "logs:CreateLogGroup"
+            ]
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${Customer}-*'
+          - Sid: ssm
+            Effect: Allow
+            Action: [
+              "ssm:Describe*",
+              "ssm:Get*",
+              "ssm:List*"
+            ]
+            Resource: [
+              !Sub 'arn:aws:ssm:*:*:parameter/${Customer}/*'
+            ]
+  CodeBuildRoleFrontend:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns: [
+        !Ref CodeBuildPolicyFrontend
+      ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+      Path: /
+      RoleName: !Sub ${Customer}-${Project}-CodeBuild_Role_Buckets_Frontend
+  CustomResourceCertificate:
+    Condition: DevEnv
+    Type: 'Custom::CreateCertificate'
+    Properties:
+      ServiceToken: !ImportValue LambdaCallStateMachineCertArn
+      WebSiteURL: !Sub ${CustomAPIGWDomain}
+      HostedZoneId: !Ref HostedZoneId
+      Region: "us-east-1"
+  ApiGWCustomDomain:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      DomainName: !Ref CustomAPIGWDomain
+      SecurityPolicy: TLS_1_2
+      CertificateArn: !If [DevEnv, !Ref CustomResourceCertificate, !Ref APICertificateArn]
+      EndpointConfiguration:
+        Types:
+          - EDGE
+  CustomResourceDns:
+    Condition: DevEnv
+    Type: 'Custom::CreateCertificate'
+    Properties:
+      ServiceToken: !ImportValue LambdaCallStateMachineDnsArn
+      WebSiteURL: !Sub ${ApiGWCustomDomain}
+      Endpoint: !GetAtt ApiGWCustomDomain.DistributionDomainName
+      HostedZoneId: !Sub ${HostedZoneId}
+  SSMParameter01:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Customer}/AppHostedZoneId
+      Type: "String"
+      Value: !Ref HostedZoneId
+  SSMParameter02:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: /dummyvalue
+      Type: "String"
+      Value: "dummyvalue"
+  SSMParameter11:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Customer}/${App1Name}/AppUrl
+      Type: "String"
+      Value: !Ref App1AppURL
+  SSMParameter23:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Customer}/CustomAPIGWDomain
+      Type: "String"
+      Value: !Ref CustomAPIGWDomain
+  SSMParameter24:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Customer}/SiteCertificateArn
+      Type: "String"
+      Value: !Ref SiteCertificateArn
+  SSMParameter25:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Sub /${Customer}/APICertificateArn
+      Type: "String"
+      Value: !Ref APICertificateArn
+Outputs:
+  CloudWatchRole:
+    Description: CloudWatchRole for API GW
+    Value: !GetAtt CloudWatchRole.Arn
+    Export:
+      Name: !Sub ${Customer}:${Project}:CloudWatchRole
+  ArtifactsBucket:
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub ${Customer}:${Project}:ArtifactsBucketName
+  PipelineArtifactsBucket:
+    Value: !Ref PipelineArtifactsBucket
+    Export:
+      Name: !Sub ${Customer}:${Project}:PipelineArtifactsBucketName
+  LamdaBucket:
+    Value: !Ref LambdaBucket
+    Export:
+      Name: !Sub ${Customer}:${Project}:LambdaBucket:${Branch}:${AWS::AccountId}
+  AccessLogsBucket:
+    Value: !Ref AccessLogsBucket
+    Export:
+      Name: !Sub ${Customer}:${Project}:AccessLogsBucket:${Branch}:${AWS::AccountId}
+  CodeBuildRoleBackend:
+    Value:
+      !Ref CodeBuildRoleBackend
+    Export:
+      Name: !Sub ${Customer}:${Project}:CodeBuildRoleBackend
+  CodeBuildRoleFrontend:
+    Value:
+      !Ref CodeBuildRoleFrontend
+    Export:
+      Name: !Sub ${Customer}:${Project}:CodeBuildRoleFrontend
+  CodeBuildRoleBackendArn:
+    Value:
+      !GetAtt CodeBuildRoleBackend.Arn
+    Export:
+      Name: !Sub ${Customer}:${Project}:CodeBuildRoleBackendArn
+  CodeBuildRoleFrontendArn:
+    Value:
+      !GetAtt CodeBuildRoleFrontend.Arn
+    Export:
+      Name: !Sub ${Customer}:${Project}:CodeBuildRoleFrontendArn
+  CloudFrontOrigin:
+    Value: !GetAtt CloudFrontOrigin.S3CanonicalUserId
+    Export:
+      Name: !Sub ${Customer}:${Project}:CloudFrontOrigin
+  CloudFrontOriginId:
+    Value: !Ref CloudFrontOrigin
+    Export:
+      Name: !Sub ${Customer}:${Project}:CloudFrontOriginId
