@@ -89,7 +89,6 @@ Resources:
         - Key: customer
           Value: !Ref Customer
     DeletionPolicy: Delete
-  # CodePipeLineFrontend
   CodePipelineFrontend:
     Type: AWS::CodePipeline::Pipeline
     Properties:
@@ -107,74 +106,28 @@ Resources:
                 Category: Source
                 Owner: AWS
                 Provider: CodeCommit
-                Version: "1"
+                Version: '1'
               Configuration:
                 RepositoryName: !Ref RepoFrontend
                 BranchName: !Ref BuildProjectBranchFrontend
               RunOrder: 1
               OutputArtifacts: 
                 - Name: CodeCommitCode
-        - Name: Build Frontend
+        - Name: BuildFrontend
           Actions: 
             - Name: Build
-              ActiontypeId:
+              ActionTypeId:
                 Category: Build
                 Owner: AWS
                 Provider: CodeBuild
-                Version: "1"
+                Version: '1'
               Configuration:
                 ProjectName: !Sub ${CodeBuildProjectFrontend}
               InputArtifacts:
                 - Name: CodeCommitCode
               OutputArtifacts:
-                - Name BuildArtifact
+                - Name: BuildArtifact
               RunOrder: 1
-  KMSKey:
-    Type: AWS::KMS::Key
-    Properties:
-      Description: Key for Artifact encryption
-      EnableKeyRotation: true
-      KeyPolicy:
-        Version: "2012-10-17"
-        Id: !Ref AWS::StackName
-        Statement:
-          -
-            Sid: Allows admin of the key
-            Effect: Allow
-            Principal:
-              AWS:
-                - !Sub arn:aws:iam::${AWS::AccountId}:role/${Project}-cloudformationdeployer-role
-                - !Sub arn:aws:iam::${AWS::AccountId}:role/${Project}-CentralAcctCodePipelineCFRole
-                - !Sub arn:aws:iam::${AWS::AccountId}:root
-            Action:
-              - "kms:Create*"
-              - "kms:Describe*"
-              - "kms:Enable*"
-              - "kms:List*"
-              - "kms:Put*"
-              - "kms:Update*"
-              - "kms:Revoke*"
-              - "kms:Disable*"
-              - "kms:Get*"
-              - "kms:Delete*"
-              - "kms:ScheduleKeyDeletion"
-              - "kms:CancelKeyDeletion"
-            Resource: "*"
-          -
-            Sid: Allow use of the key for CryptoGraphy Lambda
-            Effect: Allow
-            Principal:
-              AWS:
-                - Fn::ImportValue:
-                    !Sub ${Project}:CodeBuildRoleFrontendArn
-                - !GetAtt CodePipelineRoleFrontend.Arn
-            Action:
-              - kms:Encrypt
-              - kms:Decrypt
-              - kms:ReEncrypt*
-              - kms:GenerateDataKey*
-              - kms:DescribeKey
-            Resource: "*"
 
 
 
@@ -183,7 +136,6 @@ Resources:
     Properties:
       ServiceRole: !Ref CodeBuildRoleFrontend
       Description: Builds Projects
-      EncryptionKey: !GetAtt KMSKey.Arn
       Name: !Sub ${Project}-CodeBuildProject-Frontend
       Artifacts:
         Type: CODEPIPELINE
