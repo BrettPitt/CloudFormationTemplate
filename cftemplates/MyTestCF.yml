@@ -298,6 +298,14 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Sid: codecommit
+            Effect: Allow
+            Action: [
+              "*"
+            ]
+            Resource: [
+              "*"
+            ]
           - Sid: s3
             Effect: Allow
             Action: [
@@ -325,8 +333,8 @@ Resources:
               - codebuild:StartBuild
               - codebuild:BatchGetBuilds
             Resource: [
-              !Sub 'arn:aws:codebuild:*:*:project/${Project}-Frontend',
-              !Sub 'arn:aws:codebuild:*:*:project/${Project}-Frontend/*'
+              !Sub 'arn:aws:codebuild:*:*:project/${Project}-CodeBuildProject-Frontend',
+              !Sub 'arn:aws:codebuild:*:*:project/${Project}-CodeBuildProject-Frontend/*'
             ]
           - Sid: lambda
             Effect: Allow
